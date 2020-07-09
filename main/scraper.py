@@ -1,85 +1,152 @@
+import asyncio
+import logging
 import os
-from checkers import is_in_path
-import geckodriver_autoinstaller
+import random
+from asyncio import sleep as sleep
+
+import aiofiles
+import aiohttp
+from aiohttp import ClientSession
 from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.common.exceptions import (
-    ElementNotSelectableException,
-    ElementNotVisibleException,
-    NoSuchElementException,
-    TimeoutException,
+
+logging.basicConfig(
+    level=logging.INFO, format="[%(levelname)s] %(message)s", datefmt="%H:%M:%S",
 )
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.support.expected_conditions import (
-    StaleElementReferenceException,
-    invisibility_of_element,
-)
-from selenium.webdriver.support.ui import WebDriverWait
 
 
-class Driver:
-    def __init__(self, path):
-        self.options = Options()
-        self.options.headless = False
-        self.path = path
-        self.driver = None
-        self.wait = None
+async def request(url, session):
+    async with session.get(url) as resp:
+        logging.debug(f"Got response [{resp.status}] for URL: {url}")
+        html = await resp.read()
+        return BeautifulSoup(html, "html.parser")
 
-    def gecko_install(self):
-        if not is_in_path(self.path, "v0.26.0"):
-            print(f"Installing WebDriver to {self.path}")
-            geckodriver_autoinstaller.install(cwd=True)
-            print("WebDriver succesfully installed!")
-        else:
-            pass
 
-    def start_webdriver(self):
-        driver_path = self.path + "/v0.26.0/geckodriver"
-        self.driver = webdriver.Firefox(
-            executable_path=driver_path, options=self.options,
+async def get_next_page(url, session):
+    logging.debug("Loading page")
+    page = await request(url, session)
+    if page.find("span", "next"):
+        logging.debug("Next page found")
+        next_url = "https://www.moma.org" + page.find("span", "next").find("a").get(
+            "href"
         )
-        self.wait = WebDriverWait(
-            self.driver,
-            3,
-            poll_frequency=0.5,
-            ignored_exceptions=[
-                ElementNotVisibleException,
-                ElementNotSelectableException,
-                NoSuchElementException,
-            ],
-        )
+        return page, next_url
+    else:
+        return page, None
+        logging.debug("Last page reached")
 
-    def stop_driver(self):
-        if self.driver is not None:
-            self.driver.quit()
+
+async def crawler(url, session):
+    page, next_url = await get_next_page(url, session)
+    while True:
+        yield page
+        if next_url is not None:
+            page, next_url = await get_next_page(next_url, session)
         else:
-            print("Driver not runnning - passing")
-            pass
+            break
 
 
-class Finder(Driver):
-    def get_item_by_xpath(self, xpath):
-        self.driver.find_element_by_xpath(xpath)
-
-    def get_items_by_xpath(self, xpath):
-        self.driver.find_elements_by_xpath(xpath)
-
-    def get_item_by_css(self, css):
-        self.driver.find_element(By.CSS_SELECTOR, css)
-
-    def get_items_by_css(self, css):
-        self.driver.find_elements(By.CSS_SELECTOR, css)
+def get_links(page):
+    return (
+        f"https://www.moma.org{link.get('href')}"
+        for link in page.find_all("a", class_="grid-item__link")
+    )
 
 
-class Scraper(Finder):
-    def start(self):
-        self.gecko_install()
-        self.start_webdriver()
+async def get_data(url, session, **kwargs):
+    def get_info(page):
+        basic_info = dict(
+            zip(
+                ["Author", "Title", "Date"],
+                (
+                    item.text.strip()
+                    for item in page.find_all(
+                        "span",
+                        (
+                            [
+                                "work__short-caption__text--primary",
+                                "work__short-caption__text",
+                            ],
+                        ),
+                    )
+                ),
+            )
+        )
+        details = dict(
+            zip(
+                (
+                    item.text.strip()
+                    for item in page.find_all("dt", "work__caption__term")
+                ),
+                (
+                    item.text.strip()
+                    for item in page.find_all("dd", "work__caption__description")
+                ),
+            )
+        )
+        img = "https://www.moma.org" + page.find(
+            "img", class_="link/enable link/focus picture/image"
+        ).get("src")
+        complete_info = {
+            **basic_info,
+            **details,
+            "Artwork URL": url,
+            "Img URL": img,
+        }
+        return complete_info
 
-    def stop(self):
-        self.stop_driver()
+    page = await request(url, session)
+    logging.debug("Parsing data")
+    data = get_info(page)
+    img = tuple([data["Object number"], data["Img URL"]])
+    await downloader(img, session, **kwargs)
+    return data
 
 
-scrap = Scraper(os.getcwd())
+async def downloader(img, session, path):
+    logging.debug("Downloading Image")
+    title, url = img
+    file = path + f"/{title}.jpg"
+    async with session.get(url) as resp:
+        with open(file, "wb") as fd:
+            while True:
+                chunk = await resp.content.read(10)
+                if not chunk:
+                    break
+                fd.write(chunk)
+
+
+async def Session1(url, session):
+    pages = crawler(url, session)
+    async for page in pages:
+        logging.info("Getting artworks list")
+        links = get_links(page)
+        yield links
+
+
+async def chain(url, **kwargs):
+    async with ClientSession() as session:
+        links = Session1(url, session)
+        async for link in links:
+            logging.info("Parsing data")
+            logging.info("Downloading Images")
+            tasks = []
+            for url in link:
+                tasks.append(get_data(url, session, **kwargs))
+            yield await asyncio.gather(*tasks)
+
+
+async def agregator(url, **kwargs):
+    result = chain(url, **kwargs)
+    data = []
+    async for lst in result:
+        logging.info("Adding new artworks")
+        for item in lst:
+            data.append(item)
+    return data
+
+
+def main(url, path):
+    save_path = path + "/img"
+    logging.info("Starting scraping")
+    data = asyncio.run(agregator(url, path=save_path))
+    return data
