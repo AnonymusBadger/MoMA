@@ -10,107 +10,84 @@ from checkers import (
 from fixers import set_first_page
 from scraper import main as scraper
 from decorators import head, body, footer
-from text import print_centered_text
+from text import center_text
 from licences import select_license
 
 
-class Core(object):
+class Head:
+    @head
+    def print(self):
+        print(self._text)
 
-    """Docstring for Core. """
 
-    def __init__(
-        self,
-        author: str,
-        year: int,
-        title: str,
-        description: str,
-        license_: list,
-        path: str,
-    ):
-        """
-        :author: Author Name
-        :year: Year of creation
-        :title: Program Title
-        :description: Program description
-        :license_: License type
-        :path: Program running path
+class Options:
+    @body
+    def print(self):
+        print(
+            *[
+                f"[{n}] {self._options[n][0]} "
+                for n, title in enumerate(self._options, 1)
+            ],
+            "[0] Back",
+        )
 
-        """
 
-        self._author = author
-        self._year = year
-        self._title = title
-        self._description = description
+class Select:
+    def print(self):
+        return numeric_selector(self._options)
+
+
+class Scrape:
+    def __init__(self, path, *args, **kwargs):
         self._path = path
-        self._license = select_license(license_, author, title, description, year)
 
-    def start_ui(self):
-        """
-        :returns: Main screen
-
-        """
-        page = Main(self._license)
-        page.run()
+    @head
+    def print(self):
+        print("Hello! I'm scraper!")
 
 
-class Main(Core):
+class Database:
+    pass
 
-    """Main Screen"""
 
-    def __init__(self, license_):
-        """TODO: to be defined. """
-        super(Core, self).__init__()
-        self._license = license_
+class MainMenu(Head, Options, Select):
+    def __init__(self, licence_, author, title, description, year, *args, **kwargs):
+        self._text = center_text(
+            select_license(licence_, author, title, description, year,)
+        )
         self._options = {
-            0: "Quit",
-            1: "New Search",
-            2: "Browse Database",
+            1: ("New Search", Scrape),
+            2: ("Brawse Data", Database),
         }
 
-    def run(self):
-        @head
-        def print_license():
-            print_centered_text(self._license)
-
-        @body
-        def print_options():
-            print(
-                *[
-                    f"[{n}] {self._options[n]} "
-                    for n, title in enumerate(self._options)
-                ],
-            )
-
-        @footer
-        def selector():
-            resp = numeric_selector(self._options)
-            if resp == 0:
-                sys.exit()
-            if resp == 1:
-                Search().run()
-            if resp == 2:
-                pass
-
+    def print(self):
         os.system("clear")
-        print_license()
-        print_options()
-        selector()
+        Head.print(self)
+        Options.print(self)
+        resp = Select.print(self)
+        if resp == 0:
+            sys.exit()
+        return self._options[resp][1]
 
 
-class Search(Core):
+class Ui(MainMenu, Scrape):
+    def __init__(self, *args, **kwargs):
+        MainMenu.__init__(self, *args, **kwargs)
+        Scrape.__init__(self, *args, **kwargs)
 
-    """Docstring for Search. """
-
-    def __init__(self):
-        """TODO: to be defined. """
-        super(Core, self).__init__()
-
-    def run(self):
+    def start(self):
+        next_manu = MainMenu.print(self)
         os.system("clear")
-        print("Search Page")
+        next_manu.print(self)
 
 
 if __name__ == "__main__":
-    path = os.getcwd()
-    ui = Core("Kajetan", 2020, "MoMA", "Moma museum artwork web scraper", "GPL3", path)
-    ui.start_ui()
+    ui = Ui(
+        author="Kajetan",
+        year=2020,
+        title="MoMA",
+        description="Moma museum artwork web scraper",
+        licence_="GPL3",
+        path=None,
+    )
+    ui.start()

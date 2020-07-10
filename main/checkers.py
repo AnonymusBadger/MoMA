@@ -36,7 +36,7 @@ def folder_exists_check(path, folder_name):
 def numeric_selector(selections: dict):
     resp = input("Select number: ")
     if resp.isnumeric():
-        if int(resp) < len(selections):
+        if int(resp) <= len(selections):
             return int(resp)
         else:
             print("Please provide valid number")

@@ -29,3 +29,15 @@ def footer(func):
         func(*args, **kwargs)
 
     return wrapper
+
+
+def center_text(func):
+    def wrapper(text):
+        if isinstance(text, list):
+            text = "\n".join([line.center(width()) for line in text])
+            return func(text)
+
+        else:
+            pass
+
+    return wrapper
