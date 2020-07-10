@@ -1,0 +1,120 @@
+from pprint import pprint as pp
+from checkers import set_first_page
+import re
+import asyncio
+import aiohttp
+
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+
+# url = "https://www.moma.org/collection/?classifications=any&date_begin=Pre-1850&date_end=2020&include_uncataloged_works=1&locale=en&page=152&q=&utf8=%E2%9C%93&with_images=1"
+URL = "https://www.moma.org/collection/works?locale=en&utf8=%E2%9C%93&q=&classifications=9&date_begin=2006&date_end=2020&include_uncataloged_works=1&with_images=1"
+# url = "https://www.moma.org/collection/works?locale=en&utf8=%E2%9C%93&q=&classifications=any&date_begin=1850&date_end=1852&with_images=1"
+test_art_url = [
+    "https://www.moma.org/collection/works/404608?classifications=any&date_begin=2018&date_end=2020&locale=en&page=1&q=&with_images=1",
+    "https://www.moma.org/collection/works/79511?classifications=9&date_begin=1850&date_end=1917&locale=en&page=1&q=&with_images=1",
+    "https://www.moma.org/collection/works/48025?classifications=any&date_begin=1850&date_end=1852&locale=en&page=1&q=&with_images=1",
+    "https://www.moma.org/collection/works/45821?classifications=any&date_begin=1850&date_end=1852&locale=en&page=1&q=&with_images=1",
+    "https://www.moma.org/collection/works/74722?classifications=any&date_begin=1850&date_end=1852&locale=en&page=1&q=&with_images=1",
+]
+
+
+class Request:
+    def __init__(self, url):
+        self.url = url
+        self.page = self._get_page()
+        self.base_url = "https://www.moma.org"
+
+    def _get_page(self):
+        with requests.get(self.url) as req:
+            return BeautifulSoup(req.content, "html.parser")
+
+    def get_current_page(self):
+        return int(*re.findall(r"page=([\d]*)", self.url))
+
+    def get_next_page(self):
+        try:
+            path = self.page.find("span", "next").find("a").get("href")
+            return f"https://www.moma.org{path}"
+        except AttributeError:
+            return None
+
+    def get_num_of_pages(self):
+        link = self.page.find("span", class_="last").find("a").get("href")
+        return int(*re.findall(r"page=([\d]*)", link))
+
+    def get_links(self):
+        return (
+            self.base_url + link.get("href")
+            for link in self.page.find_all("a", class_="grid-item__link")
+        )
+
+    def download_image(self):
+        return requests.get(self.url, allow_redirects=True).content
+
+    def get_info(self):
+        basic_info = dict(
+            zip(
+                ["Author", "Title", "Date"],
+                (
+                    item.text.strip()
+                    for item in self.page.find_all(
+                        "span",
+                        (
+                            [
+                                "work__short-caption__text--primary",
+                                "work__short-caption__text",
+                            ],
+                        ),
+                    )
+                ),
+            )
+        )
+        details = dict(
+            zip(
+                (
+                    item.text.strip()
+                    for item in self.page.find_all("dt", "work__caption__term")
+                ),
+                (
+                    item.text.strip()
+                    for item in self.page.find_all("dd", "work__caption__description")
+                ),
+            )
+        )
+        img = "https://www.moma.org" + self.page.find(
+            "img", class_="link/enable link/focus picture/image"
+        ).get("src")
+        complete_info = {
+            **basic_info,
+            **details,
+            "Artwork URL": self.url,
+            "Img URL": img,
+        }
+        yield complete_info
+
+
+class Scrape:
+    def __init__(self, url):
+        self.search_url = url
+        self.urls = self.get_urls()
+
+    def get_urls(self):
+        driver = Request(set_first_page(self.search_url))
+        while True:
+            next_ = driver.get_next_page()
+            yield driver.get_links()
+            if next_ is None:
+                break
+            driver = Request(next_)
+
+    def get_data(self):
+        for urls in self.urls:
+            for url in urls:
+                driver = Request(url)
+                pp(list(driver.get_info()))
+
+
+sc = Scrape(URL)
+sc.get_data()
