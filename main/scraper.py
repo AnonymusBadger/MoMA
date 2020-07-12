@@ -53,6 +53,8 @@ def get_links(page):
 
 
 async def get_data(url, session, **kwargs):
+    logging.debug(f"Parsing Data for {url}")
+
     def get_info(page):
         basic_info = dict(
             zip(
@@ -83,9 +85,13 @@ async def get_data(url, session, **kwargs):
                 ),
             )
         )
-        img = "https://www.moma.org" + page.find(
-            "img", class_="link/enable link/focus picture/image"
-        ).get("src")
+        try:
+            img = "https://www.moma.org" + page.find(
+                "img", class_="link/enable link/focus picture/image"
+            ).get("src")
+        except AttributeError:
+            img = "Unavailable"
+            logging.warning(f"Image not avelable for: {url}")
         complete_info = {
             **basic_info,
             **details,
@@ -105,30 +111,32 @@ async def get_data(url, session, **kwargs):
 async def downloader(img, session, path):
     logging.debug("Downloading Image")
     title, url = img
+    if url == "Unavailable":
+        return
     file = path + f"/{title}.jpg"
     async with session.get(url) as resp:
         with open(file, "wb") as fd:
             while True:
                 chunk = await resp.content.read(10)
                 if not chunk:
+                    logging.debug(f"Finished Downloading")
                     break
                 fd.write(chunk)
 
 
-async def Session1(url, session):
+async def get_pages(url, session):
     pages = crawler(url, session)
     async for page in pages:
         logging.info("Getting artworks list")
         links = get_links(page)
+        logging.info("Downloading Images")
         yield links
 
 
 async def chain(url, **kwargs):
     async with ClientSession() as session:
-        links = Session1(url, session)
+        links = get_pages(url, session)
         async for link in links:
-            logging.info("Parsing data")
-            logging.info("Downloading Images")
             tasks = []
             for url in link:
                 tasks.append(get_data(url, session, **kwargs))
@@ -139,14 +147,16 @@ async def agregator(url, **kwargs):
     result = chain(url, **kwargs)
     data = []
     async for lst in result:
-        logging.info("Adding new artworks")
+        logging.info("Aggregating new artworks")
         for item in lst:
             data.append(item)
     return data
 
 
 def main(url, path):
-    save_path = path + "/img"
+    save_path = f"{path}/Images"
+    os.mkdir(save_path)
     logging.info("Starting scraping")
     data = asyncio.run(agregator(url, path=save_path))
+    logging.info("Done!")
     return data

@@ -1,93 +1,158 @@
 import os
 import sys
-from checkers import (
-    folder_exists_check,
-    is_in_path,
-    url_check,
-    yes_no_sensitive,
-    numeric_selector,
-)
+
+import database
+from checkers import make_folder, numeric_selector, url_check
+from decorators import body, footer, head
 from fixers import set_first_page
-from scraper import main as scraper
-from decorators import head, body, footer
-from text import center_text
 from licences import select_license
+from scraper import main as crawler
+from text import center_text
 
 
-class Head:
+class Screen:
+    def __init__(self, options: dict = None):
+        self._options = options
+
     @head
-    def print(self):
-        print(self._text)
+    def head(self, item, *args, **kwargs):
+        if callable(item):
+            return item(*args, **kwargs)
+        print(item)
 
-
-class Options:
     @body
-    def print(self):
-        print(
-            *[
-                f"[{n}] {self._options[n][0]} "
-                for n, title in enumerate(self._options, 1)
-            ],
-            "[0] Back",
-        )
+    def pbody(self, item, *args, **kwargs):
+        if callable(item):
+            return item(*args, **kwargs)
+        print(item)
 
+    @body
+    def options(self):
+        print(*[f"[{key}] {self._options[key][0]} " for key in self._options],)
 
-class Select:
-    def print(self):
+    @footer
+    def select(self):
         return numeric_selector(self._options)
 
 
-class Scrape:
+class Scrape(Screen):
     def __init__(self, path, *args, **kwargs):
+        self._base_url = "https://www.moma.org/collection"
+        self._title = center_text("New Search")
         self._path = path
-
-    @head
-    def print(self):
-        print("Hello! I'm scraper!")
-
-
-class Database:
-    pass
-
-
-class MainMenu(Head, Options, Select):
-    def __init__(self, licence_, author, title, description, year, *args, **kwargs):
-        self._text = center_text(
-            select_license(licence_, author, title, description, year,)
-        )
         self._options = {
-            1: ("New Search", Scrape),
-            2: ("Brawse Data", Database),
+            1: ("Start", None),
+            0: ("Back", None),
+        }
+        super().__init__(options=self._options)
+
+    def print(self):
+        def new_search(path, base_url):
+            url = url_check(base_url)
+            url = set_first_page(url)
+            return url, make_folder(path)
+
+        os.system("clear")
+        self.head(self._title)
+        self.options()
+        resp = self.select()
+        if resp == 0:
+            return
+        url, save_path = self.pbody(
+            new_search, path=self._path, base_url=self._base_url
+        )
+        data = crawler(url, save_path)
+        db = database.Database(save_path)
+        db.create_new(data)
+        input("Press Enter to continue")
+
+
+class dbEditor(Screen):
+    def __init__(self, database):
+        self._title = center_text(f"Editing: {database[0]}")
+        self._database = database[0]
+        self._db_path = database[1]
+        self._options = {
+            1: ("Delete", None),
+            0: ("Back", None),
         }
 
     def print(self):
         os.system("clear")
-        Head.print(self)
-        Options.print(self)
-        resp = Select.print(self)
+        self.head(self._title)
+        self.options()
+        resp = self.select()
+        if resp == 0:
+            return
+        return
+
+
+class Database(Screen):
+    def __init__(self, path, *args, **kwargs):
+        self._title = center_text("Database Explorer")
+        self._path = path
+        self._options = {}
+        self.db = database.Database(path)
+        super().__init__(options=self._options)
+
+    def print(self):
+        while True:
+            os.system("clear")
+            self.head(self._title)
+            dbs = self.db.find_db()
+            [
+                self._options.update({n: (dbs.get(n), f"{self._path}/{dbs.get(n)}")})
+                for n in dbs
+            ]
+            self._options.update({0: ("Back", None)})
+            self.options()
+            resp = self.select()
+            if resp == 0:
+                return
+            database = self._options.get(resp)
+            dbEditor(database).print()
+
+
+class MainMenu(Screen):
+    def __init__(self, licence_, author, title, description, year, *args, **kwargs):
+        self._license = center_text(
+            select_license(licence_, author, title, description, year)
+        )
+        self._options = {
+            1: ("New Search", Scrape),
+            # 2: ("Database Explorer", Database),
+            0: ("Quit", None),
+        }
+        super().__init__(options=self._options)
+
+    def print(self):
+        os.system("clear")
+        self.head(self._license)
+        self.options()
+        resp = self.select()
         if resp == 0:
             sys.exit()
         return self._options[resp][1]
 
 
-class Ui(MainMenu, Scrape):
-    def __init__(self, *args, **kwargs):
-        MainMenu.__init__(self, *args, **kwargs)
-        Scrape.__init__(self, *args, **kwargs)
+class UI:
+    def __init__(self, path, *args, **kwargs):
+        self._main = MainMenu(*args, **kwargs)
+        self._path = path
 
-    def start(self):
-        next_manu = MainMenu.print(self)
-        os.system("clear")
-        next_manu.print(self)
+    def start(self, *args, **kwargs):
+        while True:
+            next_manu = self._main.print()
+            next_manu(path=self._path, *args, **kwargs).print()
 
 
-if __name__ == "__main__":
-    ui = Ui(
-        author="Kajetan",
+def main(path):
+    ui = UI(
+        author="Kajetan Orzełek",
         year=2020,
         title="MoMA",
         description="Moma museum artwork web scraper",
         licence_="GPL3",
-        path=None,
+        path=path,
     )
     ui.start()

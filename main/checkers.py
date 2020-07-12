@@ -22,7 +22,7 @@ def yes_no_sensitive(phrase: str) -> bool:
 def url_check(base_url: str) -> bool:
     url = input("Please provide the search url: ")
     if base_url in url:
-        return True
+        return url
     print("Sorry the provided url is invalid! Try again.")
     return url_check(base_url)
 
@@ -31,6 +31,21 @@ def folder_exists_check(path, folder_name):
     if folder_name in os.listdir(path):
         return True
     return False
+
+
+def make_folder(path):
+    folder = input("Name your search: ")
+    folder_path = f"{path}/{folder}"
+    if folder_exists_check(path, folder):
+        if yes_no_sensitive("Do you want to overwrite? All data will be lost! "):
+            shutil.rmtree(folder_path, ignore_errors=True)
+            os.mkdir(folder_path)
+        else:
+            make_folder(path)
+
+    else:
+        os.mkdir(f"{path}/{folder}")
+    return folder_path
 
 
 def numeric_selector(selections: dict):

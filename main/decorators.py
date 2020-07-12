@@ -8,8 +8,9 @@ def spacer() -> str:
 def head(func):
     def wrapper(*args, **kwargs):
         print(f"{spacer()}\n")
-        func(*args, **kwargs)
+        value = func(*args, **kwargs)
         print(f"\n{spacer()}")
+        return value
 
     return wrapper
 
@@ -17,8 +18,9 @@ def head(func):
 def body(func):
     def wrapper(*args, **kwargs):
         print()
-        func(*args, **kwargs)
+        value = func(*args, **kwargs)
         print(f"\n{spacer()}")
+        return value
 
     return wrapper
 
@@ -26,7 +28,7 @@ def body(func):
 def footer(func):
     def wrapper(*args, **kwargs):
         print()
-        func(*args, **kwargs)
+        return func(*args, **kwargs)
 
     return wrapper
 
