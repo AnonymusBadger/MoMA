@@ -134,7 +134,9 @@ async def get_pages(url, session):
 
 
 async def chain(url, **kwargs):
-    async with ClientSession() as session:
+    async with ClientSession(
+        connector=aiohttp.TCPConnector(verify_ssl=False)
+    ) as session:
         links = get_pages(url, session)
         async for link in links:
             tasks = []
